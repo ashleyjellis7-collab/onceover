@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { CRITICAL_CAP, WEIGHTS } from "@/engine/score";
-import { heuristicModel } from "@/engine/model";
+import { decisionModel, jevModel } from "@/engine/jev";
 import { latestRuleSet, ruleSets, type RuleRecord } from "@/rules";
 
 export const metadata: Metadata = {
@@ -41,8 +41,16 @@ export default function MethodologyPage() {
         <h2 className="text-xl font-semibold">Which model decides what</h2>
         <p className="text-sm">
           Code decides exact-wording rules (fuzzy matching against the prescribed text), reading
-          age, and layout. Judgement calls are made by the decision model, currently{" "}
-          <code>{heuristicModel.version}</code>, a keyword heuristic used during development.
+          age, and layout. Judgement calls (classifying the asset, each yes/no rule question and
+          finding the evidence sentence) are made by{" "}
+          {decisionModel() === jevModel ? (
+            <>
+              TypeSafe&apos;s Jev, pinned to <code>{jevModel.version}</code>. If Jev is unavailable a
+              keyword heuristic stands in, and the report says so.
+            </>
+          ) : (
+            <>a keyword heuristic used during development.</>
+          )}{" "}
           Explanations are written from the rule record and never decide a verdict.
         </p>
       </section>

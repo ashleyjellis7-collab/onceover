@@ -65,12 +65,17 @@ export async function runChecks(
     const c = r.check as Extract<RuleRecord["check"], { type: "noul" }>;
     return { question: c.question, signals: c.signals };
   });
-  const [probs, evidence] = await Promise.all([
-    model.noul(text, questions),
-    model.evidence(text, questions),
-  ]);
+  const probs = questions.length ? await model.noul(text, questions) : [];
+  // 3. Evidence: find the sentence behind each finding that isn't Clear.
+  const flagged = judged
+    .map((r, i) => ({ i, q: questions[i] }))
+    .filter(({ i }) => bandFor(probs[i], judged[i].thresholds) !== "clear");
+  const evidence = flagged.length
+    ? await model.evidence(text, flagged.map((f) => f.q))
+    : [];
+  const evidenceFor = new Map(flagged.map((f, j) => [f.i, evidence[j]]));
   const modelAnswers = new Map<string, Answer>(
-    judged.map((r, i) => [r.id, { p: probs[i], evidence: evidence[i] }]),
+    judged.map((r, i) => [r.id, { p: probs[i], evidence: evidenceFor.get(i) ?? null }]),
   );
 
   const findings: Finding[] = [];

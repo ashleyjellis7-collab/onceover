@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { latestRuleSet } from "@/rules";
 import { runChecks } from "@/engine/run";
 import { FetchError, fetchPageText } from "@/engine/fetch-url";
-import { isChannel, isProduct } from "@/engine/model";
+import { decisionModel } from "@/engine/jev";
+import { heuristicModel, isChannel, isProduct } from "@/engine/model";
 import { ANON_DAILY_LIMIT, consumeRateLimit, flagFinding, saveReport } from "@/lib/reports";
 
 const MAX_TEXT = 50_000;
@@ -42,10 +43,19 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
 
   const product = form.get("product");
   const channel = form.get("channel");
-  const result = await runChecks(text, latestRuleSet, {
+  const opts = {
     product: isProduct(product) ? product : null,
     channel: isChannel(channel) ? channel : null,
-  });
+  };
+  let result;
+  try {
+    result = await runChecks(text, latestRuleSet, opts, decisionModel());
+  } catch (e) {
+    // Jev unavailable: fall back so the user still gets a report. The report
+    // records the model that actually decided.
+    console.error("Decision model failed; falling back to heuristic", e);
+    result = await runChecks(text, latestRuleSet, opts, heuristicModel);
+  }
 
   const id = await saveReport({
     inputType: isUrl ? "url" : "text",

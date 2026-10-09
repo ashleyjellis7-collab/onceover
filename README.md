@@ -16,13 +16,15 @@ Stack: Next.js 16 (App Router) on **Vercel**, **Turso** (libSQL) with Drizzle OR
   compliance reviewer still needs to check.
 - `src/engine/` holds the engine. It runs applicability gates, then code checks (exact wording,
   reading age, layout) and judgement checks through a swappable `DecisionModel`, then scores.
+- Jev (`src/engine/jev.ts`, pinned to `jev-1.13.0`) classifies the asset, answers each rule
+  question as a Noul, and finds the evidence sentence for findings that aren't Clear. It is used
+  when `TYPESAFE_API_KEY` is set. If Jev errors, the test falls back to the keyword heuristic and
+  the report records which model decided.
 - Anonymous limit of 5 tests a day per IP. Reports expire after 30 days. A daily cron deletes them.
 - The URL fetcher has SSRF guards: it blocks private IPs and caps redirects, size and time.
 
 Not built yet:
 
-- **Jev is not wired in.** `heuristicModel` in `src/engine/model.ts` is a keyword stand-in.
-  Implement the `DecisionModel` interface once Jev's API and terms are confirmed.
 - Image and PDF upload (needs OCR and a vision model).
 - JS rendering and screenshots (the separate Playwright worker).
 - Sign-in, monitoring, alerts and Stripe. The database tables for these already exist.
@@ -64,6 +66,7 @@ Run `npm run db:generate` after changing `src/db/schema.ts`, then run `db:migrat
    - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, from the Turso step above.
    - `CRON_SECRET`, any long random string. Vercel sends it to the cleanup cron.
    - `RATE_LIMIT_SALT`, any long random string.
+   - `TYPESAFE_API_KEY`, your Jev key.
 
    Alternatively, add the **Turso** integration from the Vercel Marketplace. It creates the
    database and sets the database URL and token variables for you. Check the variable names
