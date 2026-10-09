@@ -1,0 +1,132 @@
+import "server-only";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { db, schema } from "@/db";
+import type { CheckResult } from "@/engine/run";
+
+const ANON_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // report links last 30 days
+export const ANON_DAILY_LIMIT = 5;
+
+const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function publicId(len = 12) {
+  const bytes = randomBytes(len);
+  return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join("");
+}
+
+export async function saveReport(input: {
+  inputType: "url" | "text";
+  sourceUrl: string | null;
+  text: string;
+  result: CheckResult;
+  durationMs: number;
+}) {
+  const assetId = randomUUID();
+  const versionId = randomUUID();
+  const testId = publicId();
+  const { result } = input;
+
+  await db.batch([
+    db.insert(schema.assets).values({
+      id: assetId,
+      name: input.sourceUrl ?? input.text.slice(0, 60),
+    }),
+    db.insert(schema.assetVersions).values({
+      id: versionId,
+      assetId,
+      inputType: input.inputType,
+      sourceUrl: input.sourceUrl,
+      extractedText: input.text,
+      fileHash: createHash("sha256").update(input.text).digest("hex"),
+    }),
+    db.insert(schema.tests).values({
+      id: testId,
+      assetVersionId: versionId,
+      ruleSetVersion: result.ruleSetVersion,
+      modelVersion: result.modelVersion,
+      product: result.product,
+      channel: result.channel,
+      isPromotion: result.isPromotion,
+      finpromScore: result.finpromScore,
+      consumerDutyScore: result.consumerDutyScore,
+      durationMs: input.durationMs,
+      expiresAt: new Date(Date.now() + ANON_RETENTION_MS),
+    }),
+    ...(result.findings.length
+      ? [
+          db.insert(schema.findings).values(
+            result.findings.map((f) => ({
+              id: randomUUID(),
+              testId,
+              ruleId: f.ruleId,
+              score: f.score,
+              band: f.band,
+              severity: f.severity,
+              probability: f.probability,
+              decidedBy: f.decidedBy,
+              evidence: f.evidence,
+              explanation: f.explanation,
+              suggestion: f.suggestion,
+            })),
+          ),
+        ]
+      : []),
+  ]);
+  return testId;
+}
+
+export async function getReport(id: string) {
+  const test = await db.query.tests.findFirst({
+    where: eq(schema.tests.id, id),
+  });
+  if (!test) return null;
+  if (test.expiresAt && test.expiresAt.getTime() < Date.now()) return null;
+  const [version, rows] = await Promise.all([
+    db.query.assetVersions.findFirst({
+      where: eq(schema.assetVersions.id, test.assetVersionId),
+    }),
+    db.query.findings.findMany({ where: eq(schema.findings.testId, id) }),
+  ]);
+  return { test, version, findings: rows };
+}
+
+export async function flagFinding(testId: string, findingId: string) {
+  await db
+    .update(schema.findings)
+    .set({ flaggedWrong: true })
+    .where(and(eq(schema.findings.id, findingId), eq(schema.findings.testId, testId)));
+}
+
+/** Returns false once the caller has used up today's anonymous tests. */
+export async function consumeRateLimit(ip: string) {
+  const day = new Date().toISOString().slice(0, 10);
+  const salt = process.env.RATE_LIMIT_SALT ?? "dev";
+  const key = `${createHash("sha256").update(salt + ip).digest("hex").slice(0, 32)}:${day}`;
+  const [row] = await db
+    .insert(schema.rateLimits)
+    .values({ key, count: 1 })
+    .onConflictDoUpdate({
+      target: schema.rateLimits.key,
+      set: { count: sql`${schema.rateLimits.count} + 1` },
+    })
+    .returning({ count: schema.rateLimits.count });
+  return row.count <= ANON_DAILY_LIMIT;
+}
+
+/** Deletes expired anonymous reports and old rate-limit rows. Run daily by Vercel Cron. */
+export async function cleanupExpired() {
+  const now = Date.now();
+  // Explicit deletes rather than relying on ON DELETE CASCADE, which SQLite
+  // only enforces when foreign keys are switched on for the connection.
+  const expired = sql`SELECT id FROM tests WHERE expires_at IS NOT NULL AND expires_at < ${now}`;
+  const [, res] = await db.batch([
+    db.run(sql`DELETE FROM findings WHERE test_id IN (${expired})`),
+    db.run(sql`DELETE FROM tests WHERE id IN (${expired})`),
+  ]);
+  await db.batch([
+    db.run(sql`DELETE FROM asset_versions WHERE id NOT IN (SELECT asset_version_id FROM tests)
+      AND asset_id IN (SELECT id FROM assets WHERE workspace_id IS NULL)`),
+    db.run(sql`DELETE FROM assets WHERE workspace_id IS NULL AND id NOT IN (SELECT asset_id FROM asset_versions)`),
+    db.run(sql`DELETE FROM rate_limits WHERE substr(key, 34) < ${new Date(now).toISOString().slice(0, 10)}`),
+  ]);
+  return { deletedTests: res.rowsAffected };
+}
