@@ -7,8 +7,21 @@ import { JEV_MODEL, jevModel } from "@/engine/jev";
 export async function GET(request: Request) {
   await connection();
   const secret = process.env.CRON_SECRET;
-  if (!secret || new URL(request.url).searchParams.get("secret") !== secret) {
-    return new Response("Unauthorized", { status: 401 });
+  const env = process.env.VERCEL_ENV ?? "local";
+  if (!secret) {
+    // Saying whether a variable exists (never its value) helps diagnose deployments.
+    return new Response(
+      `Unauthorized: CRON_SECRET is not set for this deployment (environment: ${env}). ` +
+        `TYPESAFE_API_KEY is ${process.env.TYPESAFE_API_KEY ? "set" : "not set"}. ` +
+        "Add the variables for this environment in Vercel and redeploy.",
+      { status: 401 },
+    );
+  }
+  if (new URL(request.url).searchParams.get("secret")?.trim() !== secret.trim()) {
+    return new Response(
+      `Unauthorized: the secret in the URL doesn't match CRON_SECRET (environment: ${env}).`,
+      { status: 401 },
+    );
   }
 
   const key = process.env.TYPESAFE_API_KEY;
