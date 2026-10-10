@@ -13,34 +13,55 @@ function publicId(len = 12) {
   return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join("");
 }
 
-export async function saveReport(input: {
-  inputType: "url" | "text";
+export type AssetType = NonNullable<typeof schema.assetVersions.$inferInsert.assetType>;
+
+type NewAsset = {
+  inputType: "url" | "text" | "image" | "pdf";
+  assetType: AssetType | null;
   sourceUrl: string | null;
   text: string;
-  result: CheckResult;
-  durationMs: number;
-}) {
-  const assetId = randomUUID();
-  const versionId = randomUUID();
+  layout: unknown;
+  name: string;
+};
+
+/**
+ * Saves a test and its findings. Pass `asset` for a new upload, or
+ * `assetVersionId` to run another check against an asset already saved.
+ */
+export async function saveReport(
+  input: { result: CheckResult; durationMs: number } & (
+    | { asset: NewAsset; assetVersionId?: never }
+    | { assetVersionId: string; asset?: never }
+  ),
+) {
   const testId = publicId();
   const { result } = input;
+  const versionId = input.assetVersionId ?? randomUUID();
+  const assetWrites = [];
+  if (input.asset) {
+    const assetId = randomUUID();
+    const a = input.asset;
+    assetWrites.push(
+      db.insert(schema.assets).values({ id: assetId, name: a.name.slice(0, 120) }),
+      db.insert(schema.assetVersions).values({
+        id: versionId,
+        assetId,
+        inputType: a.inputType,
+        assetType: a.assetType,
+        sourceUrl: a.sourceUrl,
+        extractedText: a.text,
+        layout: a.layout ?? null,
+        fileHash: createHash("sha256").update(a.text).digest("hex"),
+      }),
+    );
+  }
 
   await db.batch([
-    db.insert(schema.assets).values({
-      id: assetId,
-      name: input.sourceUrl ?? input.text.slice(0, 60),
-    }),
-    db.insert(schema.assetVersions).values({
-      id: versionId,
-      assetId,
-      inputType: input.inputType,
-      sourceUrl: input.sourceUrl,
-      extractedText: input.text,
-      fileHash: createHash("sha256").update(input.text).digest("hex"),
-    }),
+    ...assetWrites,
     db.insert(schema.tests).values({
       id: testId,
       assetVersionId: versionId,
+      checker: result.checker,
       ruleSetVersion: result.ruleSetVersion,
       modelVersion: result.modelVersion,
       product: result.product,
@@ -70,7 +91,7 @@ export async function saveReport(input: {
           ),
         ]
       : []),
-  ]);
+  ] as unknown as Parameters<typeof db.batch>[0]);
   return testId;
 }
 

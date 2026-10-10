@@ -7,20 +7,23 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --conditions=react-server --test src/**/*.test.ts",
+    "test": "tsx --conditions=react-server --test src/**/*.test.ts src/*/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx scripts/seed.mts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "vercel-build": "drizzle-kit migrate && next build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@libsql/client": "^0.18.0",
     "@typesafe-ai/sdk": "^0.6.0",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

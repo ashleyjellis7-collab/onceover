@@ -51,7 +51,9 @@ export default function MethodologyPage() {
           ) : (
             <>a keyword heuristic used during development.</>
           )}{" "}
-          Explanations are written from the rule record and never decide a verdict.
+          Images and PDFs are first transcribed by Claude, which records each piece of text with
+          its size, position and contrast; it never decides a verdict, and you can see what it read
+          on every report. Explanations are written from the rule record and never decide a verdict.
         </p>
       </section>
 

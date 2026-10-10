@@ -27,20 +27,21 @@ export type Finding = {
 };
 
 export type CheckResult = {
+  checker: ScoreKind;
   ruleSetVersion: string;
   modelVersion: string;
   isPromotion: boolean;
   product: Product | null;
   channel: Channel | null;
   finpromScore: number | null;
-  consumerDutyScore: number;
+  consumerDutyScore: number | null;
   findings: Finding[];
 };
 
 export async function runChecks(
   text: string,
   ruleSet: RuleSet,
-  opts: { product?: Product | null; channel?: Channel | null } = {},
+  opts: { checker: ScoreKind; product?: Product | null; channel?: Channel | null },
   model: DecisionModel = heuristicModel,
 ): Promise<CheckResult> {
   // 1. Applicability gates. User-supplied product/channel win over detection.
@@ -50,6 +51,7 @@ export async function runChecks(
   const channel = opts.channel ?? detected.channel;
 
   const applicable = ruleSet.rules.filter((r) => {
+    if (r.score !== opts.checker) return false;
     const promotionOnly = r.appliesWhen.promotionOnly ?? r.score === "finprom";
     if (promotionOnly && !isPromotion) return false;
     if (r.appliesWhen.products && (!product || !r.appliesWhen.products.includes(product)))
@@ -102,13 +104,14 @@ export async function runChecks(
 
   const of = (k: ScoreKind) => findings.filter((f) => f.score === k);
   return {
+    checker: opts.checker,
     ruleSetVersion: ruleSet.version,
     modelVersion: model.version,
     isPromotion,
     product,
     channel,
-    finpromScore: isPromotion ? score(of("finprom")) : null,
-    consumerDutyScore: score(of("consumer_duty")),
+    finpromScore: opts.checker === "finprom" && isPromotion ? score(of("finprom")) : null,
+    consumerDutyScore: opts.checker === "consumer_duty" ? score(of("consumer_duty")) : null,
     findings,
   };
 }

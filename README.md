@@ -8,9 +8,20 @@ Stack: Next.js 16 (App Router) on **Vercel**, **Turso** (libSQL) with Drizzle OR
 
 ## What's built so far (Phase 1, open beta slice)
 
-- `/`: one box for a URL or pasted text, plus optional product and channel.
-- `/r/<id>`: shareable report. It shows two gauges, findings grouped Issue / Review / Clear,
-  the evidence sentence, the suggestion and a "This finding looks wrong" button. It is `noindex`.
+- `/`: chooses between the two checkers.
+- `/finprom` and `/consumer-duty`: each starts with an asset type (social post or ad, web page,
+  display ad, email or letter, brochure or PDF, plain text), then asks for that type's copy,
+  link and/or upload.
+- Uploads (PNG, JPG, GIF, WebP or PDF, up to 4MB) are transcribed by Claude into a text record
+  with each element's role, size, position and contrast (`src/engine/read-asset.ts`). Claude
+  only transcribes; Jev and the code checks decide. Needs `ANTHROPIC_API_KEY`.
+- Facebook Ad Library and social post links need a login, so they are stored as the source but
+  not fetched; the user adds a screenshot or the copy. Ordinary web page links are fetched.
+- `/r/<id>`: shareable report for one checker, with findings grouped Issue / Review / Clear,
+  the evidence sentence, the suggestion, a "This finding looks wrong" button, a "What we read"
+  panel, and a button to run the other checker on the same asset. It is `noindex`.
+- `/api/bypass?token=<BYPASS_TOKEN or CRON_SECRET>` lets the owner skip the daily limit in that
+  browser; `/api/bypass?off` turns it off.
 - `/methodology`: every rule, the question asked, the thresholds, the score formula and a changelog.
 - Rule set `v0.1` in `src/rules/` holds 21 starter rule records. They are a draft that a
   compliance reviewer still needs to check.
@@ -25,7 +36,8 @@ Stack: Next.js 16 (App Router) on **Vercel**, **Turso** (libSQL) with Drizzle OR
 
 Not built yet:
 
-- Image and PDF upload (needs OCR and a vision model).
+- Reading Ad Library and social post links automatically (needs a headless browser worker or
+  Meta API access).
 - JS rendering and screenshots (the separate Playwright worker).
 - Sign-in, monitoring, alerts and Stripe. The database tables for these already exist.
 
@@ -67,6 +79,7 @@ Run `npm run db:generate` after changing `src/db/schema.ts`, then run `db:migrat
    - `CRON_SECRET`, any long random string. Vercel sends it to the cleanup cron.
    - `RATE_LIMIT_SALT`, any long random string.
    - `TYPESAFE_API_KEY`, your Jev key.
+   - `ANTHROPIC_API_KEY`, for reading uploaded images and PDFs.
 
    Alternatively, add the **Turso** integration from the Vercel Marketplace. It creates the
    database and sets the database URL and token variables for you. Check the variable names
@@ -74,5 +87,5 @@ Run `npm run db:generate` after changing `src/db/schema.ts`, then run `db:migrat
 3. Deploy. `vercel.json` pins functions to London (`lhr1`) so they sit next to the database.
    It also schedules `/api/cron/cleanup` daily.
 
-Migrations aren't run during the Vercel build. Run `npm run db:migrate` from your machine
-against the production database whenever the schema changes.
+Vercel runs `npm run vercel-build`, which applies any new migrations to Turso before building.
+Locally, run `npm run db:migrate` yourself.

@@ -8,6 +8,13 @@
       "when": 1791568939137,
       "tag": "0000_flippant_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791631322475,
+      "tag": "0001_split_checkers",
+      "breakpoints": true
     }
   ]
 }

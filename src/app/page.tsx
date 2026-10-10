@@ -1,5 +1,18 @@
-import { CheckForm } from "@/components/check-form";
+import Link from "next/link";
 import { Disclaimer } from "@/components/disclaimer";
+
+const CHECKERS = [
+  {
+    href: "/finprom",
+    title: "Finprom checker",
+    body: "Is this financial promotion fair, clear and not misleading? Checks risk warnings, incentives, performance claims, credit disclosures and social media rules.",
+  },
+  {
+    href: "/consumer-duty",
+    title: "Consumer Duty checker",
+    body: "Would customers, including those in vulnerable circumstances, understand it? Checks reading age, jargon, pressure, costs and support.",
+  },
+];
 
 export default function Home() {
   return (
@@ -9,11 +22,23 @@ export default function Home() {
           A second pair of eyes before compliance
         </h1>
         <p className="text-lg text-muted">
-          Paste a URL or the text of a financial promotion. You get two scores, Finprom and
-          Consumer Duty, and every finding names the rule behind it. Free, no sign-up.
+          Upload a social post, ad, web page, email or brochure and get a report in under a minute.
+          Every finding names the rule behind it. Free, no sign-up.
         </p>
       </section>
-      <CheckForm />
+      <div className="grid gap-4 sm:grid-cols-2">
+        {CHECKERS.map((c) => (
+          <Link
+            key={c.href}
+            href={c.href}
+            className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-6 transition hover:border-accent"
+          >
+            <h2 className="text-xl font-semibold">{c.title}</h2>
+            <p className="text-sm text-muted">{c.body}</p>
+            <span className="mt-2 font-medium text-accent">Start a check →</span>
+          </Link>
+        ))}
+      </div>
       <Disclaimer />
     </div>
   );

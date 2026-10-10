@@ -89,6 +89,9 @@ export const assetVersions = sqliteTable("asset_versions", {
   inputType: text("input_type", {
     enum: ["url", "text", "image", "pdf"],
   }).notNull(),
+  assetType: text("asset_type", {
+    enum: ["social", "webpage", "display_ad", "email", "brochure", "text"],
+  }),
   sourceUrl: text("source_url"),
   extractedText: text("extracted_text").notNull(),
   layout: text("layout", { mode: "json" }),
@@ -104,6 +107,8 @@ export const tests = sqliteTable(
     assetVersionId: text("asset_version_id")
       .notNull()
       .references(() => assetVersions.id, { onDelete: "cascade" }),
+    // Which checker ran. Null on reports made before the tool was split in two.
+    checker: text("checker", { enum: ["finprom", "consumer_duty"] }),
     ruleSetVersion: text("rule_set_version").notNull(),
     modelVersion: text("model_version").notNull(),
     product: text("product"),
@@ -111,7 +116,7 @@ export const tests = sqliteTable(
     channel: text("channel"),
     isPromotion: integer("is_promotion", { mode: "boolean" }).notNull(),
     finpromScore: integer("finprom_score"),
-    consumerDutyScore: integer("consumer_duty_score").notNull(),
+    consumerDutyScore: integer("consumer_duty_score"),
     durationMs: integer("duration_ms").notNull(),
     // Anonymous reports expire; saved reports have this cleared.
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),

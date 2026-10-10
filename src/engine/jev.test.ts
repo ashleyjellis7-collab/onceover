@@ -30,7 +30,7 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
 
 test("Jev adapter: pinned model, typed answers mapped to findings and evidence", async () => {
   const text = "Get £50 of free Bitcoin when you sign up. Trade 24/7 on our app.";
-  const r = await runChecks(text, ruleSetV01, {}, jevModel);
+  const r = await runChecks(text, ruleSetV01, { checker: "finprom" }, jevModel);
 
   assert.ok(calls.every((c) => c.model === JEV_MODEL));
   assert.equal(r.modelVersion, JEV_MODEL);
@@ -41,7 +41,7 @@ test("Jev adapter: pinned model, typed answers mapped to findings and evidence",
   assert.equal(incentive?.band, "issue");
   assert.equal(incentive?.evidence, "Get £50 of free Bitcoin when you sign up.");
   // Jev said no to the others, so they are Clear and skipped the evidence search.
-  assert.equal(r.findings.find((f) => f.ruleId === "FG21-1-false-urgency")?.band, "clear");
+  assert.equal(r.findings.find((f) => f.ruleId === "COBS-4.2-absolute-claims")?.band, "clear");
   // Code checks still decide exact wording.
   assert.equal(r.findings.find((f) => f.ruleId === "COBS-4.12A-risk-warning")?.decidedBy, "code");
 });
