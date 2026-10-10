@@ -20,6 +20,13 @@ Stack: Next.js 16 (App Router) on **Vercel**, **Turso** (libSQL) with Drizzle OR
 - `/r/<id>`: shareable report for one checker, with findings grouped Issue / Review / Clear,
   the evidence sentence, the suggestion, a "This finding looks wrong" button, a "What we read"
   panel, and a button to run the other checker on the same asset. It is `noindex`.
+- The Consumer Duty checker adds a comprehension pre-test (`src/engine/comprehension.ts`):
+  depth (quick, key messages, in depth), audience, purpose, call to action, key messages and
+  correct and incorrect statements. It predicts clarity, shades each passage in a heatmap, and
+  says whether each statement would be taken the right way. Reports say it is a prediction, not
+  evidence of customer understanding.
+- Every report asks "What did compliance decide?". With consent, the report stops expiring so
+  it can be reviewed for the labelled test set (`compliance_outcomes` table).
 - `/api/bypass?token=<BYPASS_TOKEN or CRON_SECRET>` lets the owner skip the daily limit in that
   browser; `/api/bypass?off` turns it off.
 - `/methodology`: every rule, the question asked, the thresholds, the score formula and a changelog.

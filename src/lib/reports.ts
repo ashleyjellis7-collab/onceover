@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { CheckResult } from "@/engine/run";
+import type { ComprehensionResult } from "@/engine/comprehension";
 
 const ANON_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // report links last 30 days
 export const ANON_DAILY_LIMIT = 5;
@@ -29,7 +30,7 @@ type NewAsset = {
  * `assetVersionId` to run another check against an asset already saved.
  */
 export async function saveReport(
-  input: { result: CheckResult; durationMs: number } & (
+  input: { result: CheckResult; comprehension?: ComprehensionResult | null; durationMs: number } & (
     | { asset: NewAsset; assetVersionId?: never }
     | { assetVersionId: string; asset?: never }
   ),
@@ -69,6 +70,7 @@ export async function saveReport(
       isPromotion: result.isPromotion,
       finpromScore: result.finpromScore,
       consumerDutyScore: result.consumerDutyScore,
+      comprehension: input.comprehension ?? null,
       durationMs: input.durationMs,
       expiresAt: new Date(Date.now() + ANON_RETENTION_MS),
     }),
@@ -107,7 +109,16 @@ export async function getReport(id: string) {
     }),
     db.query.findings.findMany({ where: eq(schema.findings.testId, id) }),
   ]);
-  return { test, version, findings: rows };
+  const outcome = await db.query.complianceOutcomes.findFirst({
+    where: eq(schema.complianceOutcomes.testId, id),
+  });
+  return {
+    test,
+    version,
+    findings: rows,
+    comprehension: (test.comprehension ?? null) as ComprehensionResult | null,
+    outcome: outcome ?? null,
+  };
 }
 
 export async function flagFinding(testId: string, findingId: string) {
@@ -115,6 +126,34 @@ export async function flagFinding(testId: string, findingId: string) {
     .update(schema.findings)
     .set({ flaggedWrong: true })
     .where(and(eq(schema.findings.id, findingId), eq(schema.findings.testId, testId)));
+}
+
+export type ComplianceOutcome = typeof schema.complianceOutcomes.$inferInsert.outcome;
+
+/**
+ * Records what the firm's compliance team decided. With consent, the report and
+ * asset are kept (no expiry) so a reviewer can add them to the labelled test set;
+ * withdrawing consent restores the normal 30-day expiry.
+ */
+export async function saveComplianceOutcome(
+  testId: string,
+  outcome: ComplianceOutcome,
+  note: string | null,
+  consent: boolean,
+) {
+  const test = await db.query.tests.findFirst({ where: eq(schema.tests.id, testId) });
+  if (!test) return;
+  const expiresAt = consent ? null : new Date(test.createdAt.getTime() + ANON_RETENTION_MS);
+  await db.batch([
+    db
+      .insert(schema.complianceOutcomes)
+      .values({ testId, outcome, note, consentToImprove: consent, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: schema.complianceOutcomes.testId,
+        set: { outcome, note, consentToImprove: consent, reviewStatus: "new", updatedAt: new Date() },
+      }),
+    db.update(schema.tests).set({ expiresAt }).where(eq(schema.tests.id, testId)),
+  ]);
 }
 
 /** Returns false once the caller has used up today's anonymous tests. */
@@ -139,7 +178,8 @@ export async function cleanupExpired() {
   // Explicit deletes rather than relying on ON DELETE CASCADE, which SQLite
   // only enforces when foreign keys are switched on for the connection.
   const expired = sql`SELECT id FROM tests WHERE expires_at IS NOT NULL AND expires_at < ${now}`;
-  const [, res] = await db.batch([
+  const [, , res] = await db.batch([
+    db.run(sql`DELETE FROM compliance_outcomes WHERE test_id IN (${expired})`),
     db.run(sql`DELETE FROM findings WHERE test_id IN (${expired})`),
     db.run(sql`DELETE FROM tests WHERE id IN (${expired})`),
   ]);

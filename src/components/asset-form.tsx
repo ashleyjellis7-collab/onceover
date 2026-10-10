@@ -2,6 +2,7 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { checkAsset, type CheckState } from "@/app/actions";
+import { AUDIENCES, DEPTHS, PURPOSES, type Depth } from "@/engine/comprehension-options";
 
 type Checker = "finprom" | "consumer_duty";
 type Field = { label: string; hint?: string };
@@ -167,6 +168,8 @@ export function AssetForm({ checker }: { checker: Checker }) {
             </Labelled>
           )}
 
+          {checker === "consumer_duty" && <TestSetup />}
+
           {checker === "finprom" && (
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">
@@ -225,5 +228,123 @@ function Labelled({
       {field.hint && <span className="text-xs text-muted">{field.hint}</span>}
       <div className="mt-1">{children}</div>
     </div>
+  );
+}
+
+const inputClass =
+  "w-full rounded-lg border border-line bg-surface p-3 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent/30";
+
+function TestSetup() {
+  const [depth, setDepth] = useState<Depth>("quick");
+  const d = DEPTHS[depth];
+  return (
+    <fieldset className="flex flex-col gap-5 border-t border-line pt-5">
+      <legend className="sr-only">Test setup</legend>
+      <p className="font-medium">3. Test setup</p>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">How deep should the test go?</span>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(Object.keys(DEPTHS) as Depth[]).map((k) => (
+            <label
+              key={k}
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border p-3 text-sm ${
+                k === depth ? "border-accent bg-accent/10" : "border-line bg-surface"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <input
+                  type="radio"
+                  name="depth"
+                  value={k}
+                  checked={k === depth}
+                  onChange={() => setDepth(k)}
+                />
+                {DEPTHS[k].label}
+              </span>
+              <span className="text-xs text-muted">{DEPTHS[k].description}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Who is it for?</span>
+          <select name="audience" className={inputClass}>
+            {Object.entries(AUDIENCES).map(([k, a]) => (
+              <option key={k} value={k}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">What is it for?</span>
+          <select name="purpose" className={inputClass}>
+            {Object.entries(PURPOSES).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium">
+          What should the customer do, and by when? <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <input
+          name="callToAction"
+          placeholder="e.g. Choose a new fixed-rate account by 30 November or the money moves to easy access"
+          className={inputClass}
+        />
+      </label>
+
+      {d.maxMessages > 0 && (
+        <StatementList
+          name="keyMessages"
+          label={`Key messages the customer must take away (up to ${d.maxMessages})`}
+          placeholder={"Your fixed rate ends on 30 November\nIf you do nothing, your rate drops to 1.5%"}
+        />
+      )}
+      {d.maxStatements > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <StatementList
+            name="trueStatements"
+            label={`Correct statements (up to ${d.maxStatements})`}
+            hint="Things a customer should believe after reading."
+            placeholder={"The interest rate is 8%\nYou can't withdraw during the fixed year without losing interest"}
+          />
+          <StatementList
+            name="falseStatements"
+            label={`Incorrect statements (up to ${d.maxStatements})`}
+            hint="Plausible misunderstandings a customer should not come away with."
+            placeholder={"You can withdraw any time and keep the 8% rate\nThe rate is variable"}
+          />
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function StatementList({
+  name,
+  label,
+  hint,
+  placeholder,
+}: {
+  name: string;
+  label: string;
+  hint?: string;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="font-medium">{label}</span>
+      <span className="text-xs text-muted">{hint ? `${hint} ` : ""}One per line.</span>
+      <textarea name={name} rows={5} placeholder={placeholder} className={inputClass} />
+    </label>
   );
 }

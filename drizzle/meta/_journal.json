@@ -15,6 +15,13 @@
       "when": 1791631322475,
       "tag": "0001_split_checkers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791634835040,
+      "tag": "0002_comprehension_and_outcomes",
+      "breakpoints": true
     }
   ]
 }

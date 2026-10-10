@@ -4,6 +4,8 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { checkSameAsset, reportWrong } from "@/app/actions";
 import { Disclaimer } from "@/components/disclaimer";
+import { ComplianceOutcomeForm } from "@/components/compliance-outcome";
+import { ComprehensionReport } from "@/components/comprehension-report";
 import { Gauge } from "@/components/gauge";
 import { getReport } from "@/lib/reports";
 import type { AssetReading } from "@/engine/read-asset";
@@ -50,7 +52,7 @@ async function Report({
   await connection(); // always read the database at request time
   const report = await getReport(id);
   if (!report) notFound();
-  const { test, version, findings } = report;
+  const { test, version, findings, comprehension, outcome } = report;
   const rules = new Map(getRuleSet(test.ruleSetVersion)?.rules.map((r) => [r.id, r]));
   const ran = test.createdAt.toLocaleDateString("en-GB", {
     day: "numeric",
@@ -91,8 +93,11 @@ async function Report({
 
       <section className="flex justify-center gap-10 rounded-xl border border-line bg-surface p-6">
         {showFinprom && <Gauge label="Finprom" value={test.finpromScore} />}
-        {showDuty && <Gauge label="Consumer Duty" value={test.consumerDutyScore} />}
+        {showDuty && (
+          <Gauge label={comprehension ? "Consumer Duty rules" : "Consumer Duty"} value={test.consumerDutyScore} />
+        )}
       </section>
+      {comprehension && <ComprehensionReport c={comprehension} />}
       {showFinprom && !test.isPromotion && (
         <p className="text-sm text-muted">
           This doesn&apos;t look like a financial promotion, so the Finprom rules weren&apos;t run.
@@ -230,12 +235,16 @@ async function Report({
         </form>
       )}
 
+      <ComplianceOutcomeForm testId={test.id} saved={outcome} />
+
       <footer className="flex flex-col gap-3 border-t border-line pt-6">
         <p className="text-sm">
           {findings.filter((f) => f.band === "issue").length === 0
             ? `No issues found in ${checks} checks.`
             : `${checks} checks ran.`}{" "}
-          This link expires 30 days after the test unless you save it.
+          {test.expiresAt
+            ? "This link expires 30 days after the test unless you save it."
+            : "You've agreed we can keep this report to improve accuracy."}
         </p>
         <Disclaimer />
       </footer>

@@ -10,13 +10,24 @@ import { runChecks, type CheckResult } from "@/engine/run";
 import { FetchError, fetchPageText } from "@/engine/fetch-url";
 import { decisionModel } from "@/engine/jev";
 import { heuristicModel, isProduct, type DecisionModel } from "@/engine/model";
-import { ReadAssetError, readAsset } from "@/engine/read-asset";
+import { ReadAssetError, readAsset, type AssetReading } from "@/engine/read-asset";
+import {
+  AUDIENCES,
+  DEPTHS,
+  PURPOSES,
+  normaliseInput,
+  runComprehension,
+  type ComprehensionInput,
+  type ComprehensionResult,
+} from "@/engine/comprehension";
 import { hasBypass } from "@/lib/bypass";
 import {
   ANON_DAILY_LIMIT,
   consumeRateLimit,
   flagFinding,
+  saveComplianceOutcome,
   saveReport,
+  type ComplianceOutcome,
   type AssetType,
 } from "@/lib/reports";
 
@@ -68,6 +79,8 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
     };
   }
 
+  const comprehensionInput = checker === "consumer_duty" ? readComprehensionInput(form) : null;
+
   if (!(await hasBypass()) && !(await consumeRateLimit(await clientIp()))) {
     return { error: `You've used today's ${ANON_DAILY_LIMIT} free tests. Try again tomorrow.` };
   }
@@ -115,7 +128,12 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
     channel: ASSET_CHANNEL[assetType],
   });
 
+  const comprehension = comprehensionInput
+    ? await comprehend(text, comprehensionInput, layout as AssetReading | null)
+    : null;
+
   const id = await saveReport({
+    comprehension,
     asset: {
       inputType,
       assetType,
@@ -151,7 +169,20 @@ export async function checkSameAsset(form: FormData) {
     product: isProduct(test.product) ? test.product : null,
     channel: (test.channel as Channel | null) ?? null,
   });
-  const id = await saveReport({ assetVersionId: version.id, result, durationMs: Date.now() - started });
+  const comprehension =
+    checker === "consumer_duty"
+      ? await comprehend(
+          version.extractedText,
+          normaliseInput({ depth: "quick", audience: "general", purpose: "other" }),
+          (version.layout ?? null) as AssetReading | null,
+        )
+      : null;
+  const id = await saveReport({
+    assetVersionId: version.id,
+    result,
+    comprehension,
+    durationMs: Date.now() - started,
+  });
   redirect(`/r/${id}`);
 }
 
@@ -170,6 +201,49 @@ async function check(
     result.modelVersion += " (Jev call failed)";
     return result;
   }
+}
+
+function readComprehensionInput(form: FormData): ComprehensionInput {
+  const pick = <T extends string>(name: string, options: Record<T, unknown>, fallback: T): T => {
+    const v = String(form.get(name) ?? "");
+    return v in options ? (v as T) : fallback;
+  };
+  const lines = (name: string) => String(form.get(name) ?? "").split(/\r?\n/);
+  return normaliseInput({
+    depth: pick("depth", DEPTHS, "quick"),
+    audience: pick("audience", AUDIENCES, "general"),
+    purpose: pick("purpose", PURPOSES, "other"),
+    callToAction: String(form.get("callToAction") ?? ""),
+    keyMessages: lines("keyMessages"),
+    trueStatements: lines("trueStatements"),
+    falseStatements: lines("falseStatements"),
+  });
+}
+
+async function comprehend(
+  text: string,
+  input: ComprehensionInput,
+  reading: AssetReading | null,
+): Promise<ComprehensionResult> {
+  try {
+    return await runComprehension(text, input, decisionModel(), reading);
+  } catch (e) {
+    console.error("Comprehension test failed on Jev; falling back to heuristic", e);
+    const result = await runComprehension(text, input, heuristicModel, reading);
+    result.modelVersion += " (Jev call failed)";
+    return result;
+  }
+}
+
+const OUTCOMES: ComplianceOutcome[] = ["approved", "approved_with_changes", "rejected", "not_reviewed"];
+
+export async function recordComplianceOutcome(form: FormData) {
+  const testId = String(form.get("testId") ?? "");
+  const outcome = String(form.get("outcome") ?? "") as ComplianceOutcome;
+  if (!testId || !OUTCOMES.includes(outcome)) return;
+  const note = String(form.get("note") ?? "").trim().slice(0, 2000) || null;
+  await saveComplianceOutcome(testId, outcome, note, form.get("consent") === "on");
+  refresh();
 }
 
 async function clientIp() {

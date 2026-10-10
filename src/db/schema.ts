@@ -117,6 +117,8 @@ export const tests = sqliteTable(
     isPromotion: integer("is_promotion", { mode: "boolean" }).notNull(),
     finpromScore: integer("finprom_score"),
     consumerDutyScore: integer("consumer_duty_score"),
+    // Consumer Duty comprehension pre-test: the user's inputs and the predicted results.
+    comprehension: text("comprehension", { mode: "json" }),
     durationMs: integer("duration_ms").notNull(),
     // Anonymous reports expire; saved reports have this cleared.
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
@@ -150,6 +152,25 @@ export const findings = sqliteTable(
   },
   (t) => [index("findings_test_id_idx").on(t.testId)],
 );
+
+// "What did compliance decide?" on a report. With consent, the asset is kept
+// past the anonymous retention window so it can join the labelled test set.
+export const complianceOutcomes = sqliteTable("compliance_outcomes", {
+  testId: text("test_id")
+    .primaryKey()
+    .references(() => tests.id, { onDelete: "cascade" }),
+  outcome: text("outcome", {
+    enum: ["approved", "approved_with_changes", "rejected", "not_reviewed"],
+  }).notNull(),
+  note: text("note"),
+  consentToImprove: integer("consent_to_improve", { mode: "boolean" }).notNull().default(false),
+  reviewStatus: text("review_status", { enum: ["new", "confirmed", "dismissed"] })
+    .notNull()
+    .default("new"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
 
 export const watches = sqliteTable("watches", {
   id: text("id").primaryKey(),

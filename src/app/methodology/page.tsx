@@ -96,7 +96,10 @@ export default function MethodologyPage() {
         <h2 className="text-xl font-semibold">Data handling</h2>
         <p className="text-sm">
           Anonymous reports, including the extracted text, are deleted 30 days after the test.
-          Uploads are never used to train any model. Reports are unlisted and marked noindex.
+          Uploaded files themselves are not stored, only the text read from them. Uploads are never
+          used to train any model. If you tell us what your compliance team decided and agree that
+          we may keep the asset, a person reviews it and it may join our labelled test set, which
+          we use to measure and tune accuracy. Reports are unlisted and marked noindex.
         </p>
       </section>
 
