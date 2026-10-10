@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState } from "react";
-import { checkAsset, type CheckState } from "@/app/actions";
+import { checkAsset, suggestFromAsset, type CheckState } from "@/app/actions";
 import { AUDIENCES, DEPTHS, PURPOSES, type Depth } from "@/engine/comprehension-options";
 
 type Checker = "finprom" | "consumer_duty";
@@ -236,7 +236,42 @@ const inputClass =
 
 function TestSetup() {
   const [depth, setDepth] = useState<Depth>("quick");
+  const [cta, setCta] = useState("");
+  const [keyMessages, setKeyMessages] = useState("");
+  const [trueStatements, setTrueStatements] = useState("");
+  const [falseStatements, setFalseStatements] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<{ error?: string; ok?: string } | null>(null);
   const d = DEPTHS[depth];
+
+  async function suggest(e: React.MouseEvent<HTMLButtonElement>) {
+    const form = e.currentTarget.form;
+    if (!form) return;
+    const filled = [cta, keyMessages, trueStatements, falseStatements].some((v) => v.trim());
+    if (filled && !window.confirm("Replace what you've written with suggestions?")) return;
+    setSuggesting(true);
+    setSuggestNote(null);
+    try {
+      const res = await suggestFromAsset(new FormData(form));
+      if (res.error || !res.suggestions) {
+        setSuggestNote({ error: res.error ?? "No suggestions came back." });
+        return;
+      }
+      const s = res.suggestions;
+      setCta(s.callToAction ?? "");
+      setKeyMessages(s.keyMessages.join("\n"));
+      setTrueStatements(s.trueStatements.join("\n"));
+      setFalseStatements(s.falseStatements.join("\n"));
+      setSuggestNote({
+        ok: "Suggestions added. They're drafts: check each one against the asset and edit before you run the check.",
+      });
+    } catch {
+      setSuggestNote({ error: "We couldn't suggest statements right now. Try again, or write them yourself." });
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   return (
     <fieldset className="flex flex-col gap-5 border-t border-line pt-5">
       <legend className="sr-only">Test setup</legend>
@@ -291,12 +326,33 @@ function TestSetup() {
         </label>
       </div>
 
+      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={suggest}
+            disabled={suggesting}
+            className="rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent hover:bg-accent/10 disabled:opacity-60"
+          >
+            {suggesting ? "Reading the asset…" : "Suggest statements from the asset"}
+          </button>
+          <span className="text-xs text-muted">
+            Drafts the call to action{d.maxStatements > 0 ? ", key messages and statements" : ""} from
+            what you&apos;ve added above.
+          </span>
+        </div>
+        {suggestNote?.error && <p className="text-sm text-issue">{suggestNote.error}</p>}
+        {suggestNote?.ok && <p className="text-sm text-review">{suggestNote.ok}</p>}
+      </div>
+
       <label className="flex flex-col gap-1 text-sm">
         <span className="font-medium">
           What should the customer do, and by when? <span className="font-normal text-muted">(optional)</span>
         </span>
         <input
           name="callToAction"
+          value={cta}
+          onChange={(e) => setCta(e.target.value)}
           placeholder="e.g. Choose a new fixed-rate account by 30 November or the money moves to easy access"
           className={inputClass}
         />
@@ -305,6 +361,8 @@ function TestSetup() {
       {d.maxMessages > 0 && (
         <StatementList
           name="keyMessages"
+          value={keyMessages}
+          onChange={setKeyMessages}
           label={`Key messages the customer must take away (up to ${d.maxMessages})`}
           placeholder={"Your fixed rate ends on 30 November\nIf you do nothing, your rate drops to 1.5%"}
         />
@@ -313,12 +371,16 @@ function TestSetup() {
         <div className="grid gap-4 sm:grid-cols-2">
           <StatementList
             name="trueStatements"
+            value={trueStatements}
+            onChange={setTrueStatements}
             label={`Correct statements (up to ${d.maxStatements})`}
             hint="Things a customer should believe after reading."
             placeholder={"The interest rate is 8%\nYou can't withdraw during the fixed year without losing interest"}
           />
           <StatementList
             name="falseStatements"
+            value={falseStatements}
+            onChange={setFalseStatements}
             label={`Incorrect statements (up to ${d.maxStatements})`}
             hint="Plausible misunderstandings a customer should not come away with."
             placeholder={"You can withdraw any time and keep the 8% rate\nThe rate is variable"}
@@ -334,17 +396,28 @@ function StatementList({
   label,
   hint,
   placeholder,
+  value,
+  onChange,
 }: {
   name: string;
   label: string;
   hint?: string;
   placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium">{label}</span>
       <span className="text-xs text-muted">{hint ? `${hint} ` : ""}One per line.</span>
-      <textarea name={name} rows={5} placeholder={placeholder} className={inputClass} />
+      <textarea
+        name={name}
+        rows={5}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={inputClass}
+      />
     </label>
   );
 }

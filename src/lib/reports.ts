@@ -157,10 +157,12 @@ export async function saveComplianceOutcome(
 }
 
 /** Returns false once the caller has used up today's anonymous tests. */
-export async function consumeRateLimit(ip: string) {
+export async function consumeRateLimit(ip: string, bucket = "test", limit = ANON_DAILY_LIMIT) {
   const day = new Date().toISOString().slice(0, 10);
   const salt = process.env.RATE_LIMIT_SALT ?? "dev";
-  const key = `${createHash("sha256").update(salt + ip).digest("hex").slice(0, 32)}:${day}`;
+  // Each bucket gets its own allowance; the "test" bucket keeps the original key format.
+  const id = bucket === "test" ? salt + ip : `${salt}:${bucket}:${ip}`;
+  const key = `${createHash("sha256").update(id).digest("hex").slice(0, 32)}:${day}`;
   const [row] = await db
     .insert(schema.rateLimits)
     .values({ key, count: 1 })
@@ -169,7 +171,7 @@ export async function consumeRateLimit(ip: string) {
       set: { count: sql`${schema.rateLimits.count} + 1` },
     })
     .returning({ count: schema.rateLimits.count });
-  return row.count <= ANON_DAILY_LIMIT;
+  return row.count <= limit;
 }
 
 /** Deletes expired anonymous reports and old rate-limit rows. Run daily by Vercel Cron. */

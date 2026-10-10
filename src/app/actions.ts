@@ -20,6 +20,7 @@ import {
   type ComprehensionInput,
   type ComprehensionResult,
 } from "@/engine/comprehension";
+import { SuggestError, suggestStatements, type Suggestions } from "@/engine/suggest";
 import { hasBypass } from "@/lib/bypass";
 import {
   ANON_DAILY_LIMIT,
@@ -59,37 +60,40 @@ function isUnfetchableSocialLink(url: string) {
 
 export type CheckState = { error?: string };
 
-export async function checkAsset(_prev: CheckState, form: FormData): Promise<CheckState> {
-  const checker = form.get("checker");
-  const assetType = form.get("assetType");
-  if (!isChecker(checker) || !isAssetType(assetType)) return { error: "Choose an asset type first." };
+type GatheredAsset = {
+  text: string;
+  layout: AssetReading | null;
+  inputType: "url" | "text" | "image" | "pdf";
+  sourceUrl: string | null;
+  upload: File | null;
+};
 
+/** Cheap checks on the asset fields, before any rate limit is spent. */
+function validateAssetFields(form: FormData): string | null {
   const copy = String(form.get("copy") ?? "").trim();
   const url = String(form.get("url") ?? "").trim();
   const file = form.get("file");
   const upload = file instanceof File && file.size > 0 ? file : null;
-  if (copy.length > MAX_TEXT) return { error: "That's too long. Paste up to 50,000 characters." };
-  if (!copy && !url && !upload) return { error: "Add the asset's copy, a link or an upload." };
-
-  const socialLink = url && isUnfetchableSocialLink(url);
-  if (socialLink && !copy && !upload) {
-    return {
-      error:
-        "We can't read Facebook Ad Library or social post links directly, because they need a login. Add a screenshot of the ad or paste its copy, and keep the link for your records.",
-    };
+  if (copy.length > MAX_TEXT) return "That's too long. Paste up to 50,000 characters.";
+  if (!copy && !url && !upload) return "Add the asset's copy, a link or an upload.";
+  if (url && isUnfetchableSocialLink(url) && !copy && !upload) {
+    return "We can't read Facebook Ad Library or social post links directly, because they need a login. Add a screenshot of the ad or paste its copy, and keep the link for your records.";
   }
+  return null;
+}
 
-  const comprehensionInput = checker === "consumer_duty" ? readComprehensionInput(form) : null;
+/** Builds the text record from pasted copy, a fetched page and/or an uploaded file. */
+async function gatherAsset(form: FormData): Promise<GatheredAsset | { error: string }> {
+  const copy = String(form.get("copy") ?? "").trim();
+  const url = String(form.get("url") ?? "").trim();
+  const file = form.get("file");
+  const upload = file instanceof File && file.size > 0 ? file : null;
+  const socialLink = Boolean(url) && isUnfetchableSocialLink(url);
 
-  if (!(await hasBypass()) && !(await consumeRateLimit(await clientIp()))) {
-    return { error: `You've used today's ${ANON_DAILY_LIMIT} free tests. Try again tomorrow.` };
-  }
-
-  const started = Date.now();
   const parts: string[] = [];
   if (copy) parts.push(copy);
-  let inputType: "url" | "text" | "image" | "pdf" = "text";
-  let layout: unknown = null;
+  let inputType: GatheredAsset["inputType"] = "text";
+  let layout: AssetReading | null = null;
   let sourceUrl: string | null = null;
 
   if (url && !socialLink) {
@@ -120,7 +124,26 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
     }
   }
 
-  const text = parts.join("\n\n").slice(0, MAX_TEXT);
+  return { text: parts.join("\n\n").slice(0, MAX_TEXT), layout, inputType, sourceUrl, upload };
+}
+
+export async function checkAsset(_prev: CheckState, form: FormData): Promise<CheckState> {
+  const checker = form.get("checker");
+  const assetType = form.get("assetType");
+  if (!isChecker(checker) || !isAssetType(assetType)) return { error: "Choose an asset type first." };
+
+  const comprehensionInput = checker === "consumer_duty" ? readComprehensionInput(form) : null;
+  const precheck = validateAssetFields(form);
+  if (precheck) return { error: precheck };
+
+  if (!(await hasBypass()) && !(await consumeRateLimit(await clientIp()))) {
+    return { error: `You've used today's ${ANON_DAILY_LIMIT} free tests. Try again tomorrow.` };
+  }
+
+  const started = Date.now();
+  const asset = await gatherAsset(form);
+  if ("error" in asset) return { error: asset.error };
+  const { text, layout, inputType, sourceUrl, upload } = asset;
   const product = form.get("product");
   const result = await check(text, {
     checker,
@@ -129,7 +152,7 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
   });
 
   const comprehension = comprehensionInput
-    ? await comprehend(text, comprehensionInput, layout as AssetReading | null)
+    ? await comprehend(text, comprehensionInput, layout)
     : null;
 
   const id = await saveReport({
@@ -232,6 +255,29 @@ async function comprehend(
     const result = await runComprehension(text, input, heuristicModel, reading);
     result.modelVersion += " (Jev call failed)";
     return result;
+  }
+}
+
+const SUGGEST_DAILY_LIMIT = 10;
+
+export type SuggestState = { suggestions?: Suggestions; error?: string };
+
+/** Drafts comprehension statements from the asset currently in the form. */
+export async function suggestFromAsset(form: FormData): Promise<SuggestState> {
+  const precheck = validateAssetFields(form);
+  if (precheck) return { error: precheck };
+  if (!(await hasBypass()) && !(await consumeRateLimit(await clientIp(), "suggest", SUGGEST_DAILY_LIMIT))) {
+    return { error: `You've used today's ${SUGGEST_DAILY_LIMIT} suggestions. Write the statements yourself, or try tomorrow.` };
+  }
+  const asset = await gatherAsset(form);
+  if ("error" in asset) return { error: asset.error };
+  const { depth, audience, purpose } = readComprehensionInput(form);
+  try {
+    return { suggestions: await suggestStatements(asset.text, { depth, audience, purpose }) };
+  } catch (e) {
+    if (e instanceof SuggestError) return { error: e.message };
+    console.error("Suggesting statements failed", e);
+    return { error: "We couldn't suggest statements right now. Try again, or write them yourself." };
   }
 }
 
