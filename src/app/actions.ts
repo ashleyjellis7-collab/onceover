@@ -55,6 +55,7 @@ export async function checkAsset(_prev: CheckState, form: FormData): Promise<Che
     // records the model that actually decided.
     console.error("Decision model failed; falling back to heuristic", e);
     result = await runChecks(text, latestRuleSet, opts, heuristicModel);
+    result.modelVersion += " (Jev call failed)";
   }
 
   const id = await saveReport({

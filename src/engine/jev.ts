@@ -62,24 +62,15 @@ export const jevModel: DecisionModel = {
   },
 
   // The sentence with the highest "yes" probability for each question is the evidence.
+  // Evidence is supporting detail, so a failure here falls back to keyword matching
+  // rather than discarding Jev's verdicts.
   async evidence(state, questions) {
-    const sents = sentences(state).slice(0, MAX_EVIDENCE_SENTENCES);
-    const qs = Object.fromEntries(questions.map((q, i) => [`q${i}`, noul(q.question)]));
-    const scores = await mapLimit(sents, EVIDENCE_CONCURRENCY, async (s) => {
-      const { answers } = await getClient().systemOne({ model: JEV_MODEL, state: s, questions: qs });
-      return questions.map((_, i) => answers[`q${i}`].noul);
-    });
-    return questions.map((_, i) => {
-      let best: string | null = null;
-      let bestP = 0.5; // a sentence must lean "yes" on its own to count as evidence
-      sents.forEach((s, j) => {
-        if (scores[j][i] > bestP) {
-          bestP = scores[j][i];
-          best = s;
-        }
-      });
-      return best;
-    });
+    try {
+      return await jevEvidence(state, questions);
+    } catch (e) {
+      console.error("Jev evidence search failed; using keyword evidence", e);
+      return heuristicModel.evidence(state, questions);
+    }
   },
 
   async classify(state): Promise<Classification> {
@@ -109,6 +100,26 @@ export const jevModel: DecisionModel = {
     };
   },
 };
+
+async function jevEvidence(state: string, questions: { question: string }[]) {
+  const sents = sentences(state).slice(0, MAX_EVIDENCE_SENTENCES);
+  const qs = Object.fromEntries(questions.map((q, i) => [`q${i}`, noul(q.question)]));
+  const scores = await mapLimit(sents, EVIDENCE_CONCURRENCY, async (s) => {
+    const { answers } = await getClient().systemOne({ model: JEV_MODEL, state: s, questions: qs });
+    return questions.map((_, i) => answers[`q${i}`].noul);
+  });
+  return questions.map((_, i) => {
+    let best: string | null = null;
+    let bestP = 0.5; // a sentence must lean "yes" on its own to count as evidence
+    sents.forEach((s, j) => {
+      if (scores[j][i] > bestP) {
+        bestP = scores[j][i];
+        best = s;
+      }
+    });
+    return best;
+  });
+}
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>) {
   const out = new Array<R>(items.length);
