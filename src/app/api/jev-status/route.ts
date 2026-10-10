@@ -17,9 +17,16 @@ export async function GET(request: Request) {
       { status: 401 },
     );
   }
-  if (new URL(request.url).searchParams.get("secret")?.trim() !== secret.trim()) {
+  const given = new URL(request.url).searchParams.get("secret") ?? "";
+  if (given.trim() !== secret.trim()) {
+    // Hints for spotting a mis-pasted value without revealing it.
+    const shape = (v: string) =>
+      `${v.length} characters${/^\s|\s$/.test(v) ? ", with leading/trailing spaces" : ""}` +
+      `${/^["']|["']$/.test(v.trim()) ? ", wrapped in quotes" : ""}` +
+      `${v.includes("=") ? ", contains '='" : ""}`;
     return new Response(
-      `Unauthorized: the secret in the URL doesn't match CRON_SECRET (environment: ${env}).`,
+      `Unauthorized: the secret in the URL doesn't match CRON_SECRET (environment: ${env}).\n` +
+        `URL secret: ${shape(given)}.\nSaved CRON_SECRET: ${shape(secret)}.`,
       { status: 401 },
     );
   }
